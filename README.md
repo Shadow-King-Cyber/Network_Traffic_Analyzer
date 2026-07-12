@@ -36,7 +36,7 @@ Sniffer de paquetes en Python con deteccion de amenazas en tiempo real. Captura 
 ## Instalacion
 
 ```bash
-git clone https://github.com/JaimeUTP/Network_Traffic_Analyzer.git
+git clone https://github.com/Shadow-King-Cyber/Network_Traffic_Analyzer.git
 cd Network_Traffic_Analyzer
 pip install -r requirements.txt
 ```
