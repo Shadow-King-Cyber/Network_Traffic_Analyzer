@@ -24,7 +24,6 @@ try:
         DNS,
         DNSQR,
         ARP,
-        wrpcap,
     )
 except ImportError:
     print("[!] Scapy no está instalado. Ejecuta: pip install scapy")
@@ -95,6 +94,8 @@ class RuleEngine:
         )
         # DNS: {src_ip: [timestamps]}
         self.dns_tracker: dict[str, list[float]] = defaultdict(list)
+        # {src_ip} que ya emitieron DNS_HIGH_FREQ en la ventana actual
+        self.dns_alerted: set[str] = set()
 
     def evaluate(self, pkt, protocol: str) -> list[dict]:
         """Devuelve una lista de alertas generadas por las reglas."""
@@ -118,6 +119,11 @@ class RuleEngine:
             self.syn_tracker[src_ip] = [
                 t for t in self.syn_tracker[src_ip] if now - t < PORT_SCAN_WINDOW
             ]
+            self.port_access[src_ip] = {
+                (dip, dp): [t for t in ts if now - t < PORT_SCAN_WINDOW]
+                for (dip, dp), ts in self.port_access[src_ip].items()
+                if any(now - t < PORT_SCAN_WINDOW for t in ts)
+            }
             puertos = set()
             for (dip, dp), _ in self.port_access[src_ip].items():
                 if dip == dst_ip:
@@ -191,7 +197,11 @@ class RuleEngine:
                         "severity": "MEDIUM",
                     })
 
-                if len(self.dns_tracker[src_ip]) >= DNS_FREQ_THRESHOLD:
+                if len(self.dns_tracker[src_ip]) < DNS_FREQ_THRESHOLD:
+                    self.dns_alerted.discard(src_ip)
+
+                if len(self.dns_tracker[src_ip]) >= DNS_FREQ_THRESHOLD and src_ip not in self.dns_alerted:
+                    self.dns_alerted.add(src_ip)
                     alerts.append({
                         "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                         "src_ip": src_ip,
@@ -343,7 +353,13 @@ def pcap_capture(pcap_path: str, classifier: PacketClassifier,
                  rule_engine: RuleEngine, logger: AlertLogger, stats: Stats):
     print(f"{Color.BOLD}[*] Leyendo archivo PCAP: {pcap_path}{Color.RESET}\n")
 
-    packets = rdpcap(pcap_path)
+    try:
+        packets = rdpcap(pcap_path)
+    except (OSError, IOError) as e:
+        print(f"\n{Color.RED}[!] Error: No se pudo leer el archivo PCAP: {pcap_path}")
+        print(f"    {e}{Color.RESET}")
+        return
+
     print(f"    {len(packets)} paquetes encontrados\n")
 
     for pkt in packets:
